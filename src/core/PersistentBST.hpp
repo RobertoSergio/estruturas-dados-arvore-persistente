@@ -1,31 +1,41 @@
 #ifndef PERSISTENT_BST_HPP
 #define PERSISTENT_BST_HPP
 
-#include "Node.hpp"
+#include "PersistenceManager.hpp"
 
+/*
+ * Implementa as operações da árvore binária de busca.
+ * A parte de versionamento fica delegada ao PersistenceManager.
+ */
 class PersistentBST {
 private:
-    Node* root;
+    PersistenceManager persistence;
 
-    Node* insertNode(Node* node, int value);
-    Node* removeNode(Node* node, int value);
+    Node* findCurrentNode(int value) const;
 
-    Node* findMin(Node* node);
-    Node* findSuccessor(Node* node, int value);
+    Node* findCurrentMinimum(
+        Node* node
+    ) const;
 
-    void printInOrder(Node* node, bool& first);
-    void destroyTree(Node* node);
+    void removeNodeWithTwoChildren(
+        Node* node
+    );
 
 public:
-    PersistentBST();
-    ~PersistentBST();
+    PersistentBST() = default;
 
     void insert(int value);
     void remove(int value);
 
-    bool successor(int value, int& result);
+    bool successor(
+        int value,
+        int version,
+        int& result
+    ) const;
 
-    void print();
+    void print(int version) const;
+
+    int latestVersion() const;
 };
 
 #endif
