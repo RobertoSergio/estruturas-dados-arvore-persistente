@@ -6,10 +6,8 @@ struct Node {
     Node* left;
     Node* right;
 
-    Node(int value) {
-        this->value = value;
-        left = nullptr;
-        right = nullptr;
+    explicit Node(int value)
+        : value(value), left(nullptr), right(nullptr) {
     }
 };
 
