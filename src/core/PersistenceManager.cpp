@@ -1,304 +1,219 @@
 #include "PersistenceManager.hpp"
 
 PersistenceManager::PersistenceManager()
-    : currentRoot(nullptr),
-      currentVersion(0) {
+    : workingRoot(nullptr), workingVersion(0) {
     // A versão 0 representa a árvore vazia.
-    roots.push_back(nullptr);
+    versionRoots.push_back(nullptr);
 }
 
-Node* PersistenceManager::createNode(
-    int value,
-    Node* left,
-    Node* right
-) {
-    nodes.push_back(
-        std::make_unique<Node>(
-            value,
-            left,
-            right
-        )
-    );
+Node* PersistenceManager::createNode(int value, Node* left, Node* right) {
+    storage.push_back(std::make_unique<Node>(value, left, right));
 
-    return nodes.back().get();
+    Node* node = storage.back().get();
+    registerChildren(node);
+
+    return node;
 }
 
 void PersistenceManager::beginVersion() {
-    currentVersion =
-        static_cast<int>(roots.size());
+    workingVersion = static_cast<int>(versionRoots.size());
 }
 
 void PersistenceManager::commitVersion() {
-    roots.push_back(currentRoot);
+    versionRoots.push_back(workingRoot);
 }
 
-Node* PersistenceManager::getCurrentRoot() const {
-    return currentRoot;
+Node* PersistenceManager::currentRoot() const {
+    return workingRoot;
 }
 
-Node* PersistenceManager::childAt(
-    Node* node,
-    ChildSide side,
-    int version
-) const {
-    if (node == nullptr) {
-        return nullptr;
-    }
-
-    Node* result =
-        (side == ChildSide::Left)
-            ? node->initialLeft
-            : node->initialRight;
-
-    // Aplica somente as modificações que já existiam na versão consultada.
-    for (
-        std::size_t i = 0;
-        i < node->modificationCount;
-        ++i
-    ) {
-        const Modification& modification =
-            node->modifications[i];
-
-        if (
-            modification.version <= version &&
-            modification.side == side
-        ) {
-            result = modification.child;
-        }
-    }
-
-    return result;
-}
-
-Node* PersistenceManager::currentChild(
-    Node* node,
-    ChildSide side
-) const {
-    return childAt(
-        node,
-        side,
-        currentVersion
-    );
-}
-
-Node* PersistenceManager::latestCopy(Node* node) const {
+Node* PersistenceManager::currentNode(Node* node) const {
     Node* current = node;
 
-    // Um nó pode ter sido copiado mais de uma vez ao longo das versões.
-    while (
-        current != nullptr &&
-        current->newerCopy != nullptr
-    ) {
-        current = current->newerCopy;
+    // Procura a representação mais recente do nó na árvore atual.
+    while (current != nullptr) {
+        auto it = replacements.find(current);
+
+        if (it == replacements.end()) {
+            break;
+        }
+
+        current = it->second;
     }
 
     return current;
 }
 
-bool PersistenceManager::hasModificationSpace(
-    Node* node
+std::pair<Node*, Node*> PersistenceManager::childrenAt(
+    Node* node,
+    int version
 ) const {
-    return
-        node->modificationCount <
-        Node::ModificationCapacity;
-}
-
-void PersistenceManager::addModification(
-    Node* node,
-    ChildSide side,
-    Node* child
-) {
-    Modification modification;
-
-    modification.version = currentVersion;
-    modification.side = side;
-    modification.child = child;
-
-    node->modifications[
-        node->modificationCount
-    ] = modification;
-
-    ++node->modificationCount;
-}
-
-Node* PersistenceManager::applyChildChange(
-    Node* node,
-    ChildSide side,
-    Node* child
-) {
-    Node* liveNode = latestCopy(node);
-
-    // Enquanto houver espaço, a alteração fica registrada no próprio nó.
-    if (hasModificationSpace(liveNode)) {
-        addModification(
-            liveNode,
-            side,
-            child
-        );
-
-        return liveNode;
+    if (node == nullptr) {
+        return {nullptr, nullptr};
     }
 
-    // Histórico cheio: cria uma cópia com o estado atual do nó.
-    Node* oldParent = liveNode->parent;
+    Node* left = node->baseLeft;
+    Node* right = node->baseRight;
 
-    Node* left =
-        (side == ChildSide::Left)
-            ? child
-            : currentChild(
-                liveNode,
-                ChildSide::Left
-            );
+    // Cada entrada registra o estado dos filhos a partir daquela versão.
+    for (std::size_t i = 0; i < node->historySize; ++i) {
+        const ChildState& state = node->history[i];
 
-    Node* right =
-        (side == ChildSide::Right)
-            ? child
-            : currentChild(
-                liveNode,
-                ChildSide::Right
-            );
+        if (state.version <= version) {
+            left = state.left;
+            right = state.right;
+        }
+    }
 
-    Node* copy = createNode(
-        liveNode->value,
+    return {left, right};
+}
+
+Node* PersistenceManager::leftAt(Node* node, int version) const {
+    return childrenAt(node, version).first;
+}
+
+Node* PersistenceManager::rightAt(Node* node, int version) const {
+    return childrenAt(node, version).second;
+}
+
+Node* PersistenceManager::currentLeft(Node* node) const {
+    return leftAt(node, workingVersion);
+}
+
+Node* PersistenceManager::currentRight(Node* node) const {
+    return rightAt(node, workingVersion);
+}
+
+void PersistenceManager::recordState(
+    Node* node,
+    Node* left,
+    Node* right
+) {
+    node->history[node->historySize] = {
+        workingVersion,
         left,
         right
-    );
+    };
 
-    liveNode->newerCopy = copy;
+    ++node->historySize;
+}
 
-    adoptCurrentChildren(copy);
+void PersistenceManager::registerChildren(Node* node) {
+    if (node == nullptr) {
+        return;
+    }
+
+    Node* left = currentLeft(node);
+    Node* right = currentRight(node);
+
+    // parentLinks representa somente a árvore mais recente.
+    if (left != nullptr) {
+        parentLinks[left] = {node, Branch::Left};
+    }
+
+    if (right != nullptr) {
+        parentLinks[right] = {node, Branch::Right};
+    }
+}
+
+Node* PersistenceManager::updateChildren(
+    Node* node,
+    Node* left,
+    Node* right
+) {
+    Node* current = currentNode(node);
+
+    // Ainda há espaço no histórico do nó.
+    if (current->historySize < Node::HistoryCapacity) {
+        recordState(current, left, right);
+        registerChildren(current);
+
+        return current;
+    }
+
+    auto parentIt = parentLinks.find(current);
+    bool hasParent = parentIt != parentLinks.end();
+
+    ParentLink previousLink;
+
+    if (hasParent) {
+        previousLink = parentIt->second;
+    }
 
     /*
-     * A cópia precisa ocupar a posição do nó antigo na árvore atual.
-     * Se necessário, a alteração pode continuar sendo propagada para o pai.
+     * O histórico está cheio. O estado atual é materializado
+     * em um novo nó e passa a representar o antigo na árvore atual.
      */
-    if (oldParent == nullptr) {
+    Node* copy = createNode(current->value, left, right);
+    replacements[current] = copy;
+
+    if (!hasParent) {
         setRoot(copy);
-    } else {
-        Node* liveParent =
-            latestCopy(oldParent);
-
-        ChildSide occupiedSide =
-            sideOfChild(
-                liveParent,
-                liveNode
-            );
-
-        setChild(
-            liveParent,
-            occupiedSide,
-            copy
-        );
+        return copy;
     }
+
+    Node* parent = currentNode(previousLink.parent);
+
+    /*
+     * A atualização do pai pode, por sua vez, gerar outra cópia
+     * e propagar a alteração em direção à raiz.
+     */
+    setChild(parent, previousLink.branch, copy);
 
     return copy;
 }
 
 void PersistenceManager::setChild(
     Node* parent,
-    ChildSide side,
+    Branch branch,
     Node* child
 ) {
-    Node* updatedParent =
-        applyChildChange(
-            parent,
-            side,
-            child
-        );
+    Node* currentParent = currentNode(parent);
+
+    Node* left = currentLeft(currentParent);
+    Node* right = currentRight(currentParent);
+
+    if (branch == Branch::Left) {
+        left = child;
+    } else {
+        right = child;
+    }
+
+    Node* updatedParent = updateChildren(currentParent, left, right);
 
     if (child != nullptr) {
-        child->parent = updatedParent;
+        parentLinks[child] = {updatedParent, branch};
     }
 }
 
-void PersistenceManager::replaceNode(
-    Node* oldNode,
-    Node* newNode
-) {
-    Node* liveOldNode =
-        latestCopy(oldNode);
+void PersistenceManager::replace(Node* oldNode, Node* newNode) {
+    Node* currentOld = currentNode(oldNode);
 
-    Node* parent =
-        liveOldNode->parent;
+    auto parentIt = parentLinks.find(currentOld);
 
-    if (parent == nullptr) {
+    if (parentIt == parentLinks.end()) {
         setRoot(newNode);
         return;
     }
 
-    Node* liveParent =
-        latestCopy(parent);
+    ParentLink link = parentIt->second;
+    Node* parent = currentNode(link.parent);
 
-    ChildSide side =
-        sideOfChild(
-            liveParent,
-            liveOldNode
-        );
-
-    setChild(
-        liveParent,
-        side,
-        newNode
-    );
+    setChild(parent, link.branch, newNode);
 }
 
-void PersistenceManager::setRoot(Node* newRoot) {
-    currentRoot = newRoot;
+void PersistenceManager::setRoot(Node* root) {
+    workingRoot = root;
 
-    if (newRoot != nullptr) {
-        newRoot->parent = nullptr;
+    if (root != nullptr) {
+        parentLinks.erase(root);
     }
 }
 
-void PersistenceManager::adoptCurrentChildren(
-    Node* node
-) {
-    Node* left =
-        currentChild(
-            node,
-            ChildSide::Left
-        );
-
-    Node* right =
-        currentChild(
-            node,
-            ChildSide::Right
-        );
-
-    // Os ponteiros parent são usados somente para a árvore atual.
-    if (left != nullptr) {
-        left->parent = node;
-    }
-
-    if (right != nullptr) {
-        right->parent = node;
-    }
-}
-
-ChildSide PersistenceManager::sideOfChild(
-    Node* parent,
-    Node* child
-) const {
-    if (
-        currentChild(
-            parent,
-            ChildSide::Left
-        ) == child
-    ) {
-        return ChildSide::Left;
-    }
-
-    return ChildSide::Right;
-}
-
-int PersistenceManager::resolveVersion(
-    int requestedVersion
-) const {
-    // Versões inexistentes devem usar a versão mais recente.
+int PersistenceManager::normalizeVersion(int requestedVersion) const {
     if (
         requestedVersion < 0 ||
-        requestedVersion >=
-            static_cast<int>(roots.size())
+        requestedVersion >= static_cast<int>(versionRoots.size())
     ) {
         return latestVersion();
     }
@@ -306,13 +221,10 @@ int PersistenceManager::resolveVersion(
     return requestedVersion;
 }
 
-Node* PersistenceManager::rootAt(
-    int version
-) const {
-    return roots[version];
+Node* PersistenceManager::rootAt(int version) const {
+    return versionRoots[version];
 }
 
 int PersistenceManager::latestVersion() const {
-    return
-        static_cast<int>(roots.size()) - 1;
+    return static_cast<int>(versionRoots.size()) - 1;
 }

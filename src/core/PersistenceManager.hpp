@@ -2,37 +2,54 @@
 #define PERSISTENCE_MANAGER_HPP
 
 #include <memory>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "Node.hpp"
 
-/*
- * Responsável pelo mecanismo de persistência:
- * versões, histórico de alterações e cópia de nós.
- */
+enum class Branch {
+    Left,
+    Right
+};
+
 class PersistenceManager {
 private:
-    // Mantém a propriedade dos nós criados durante a execução.
-    std::vector<std::unique_ptr<Node>> nodes;
+    struct ParentLink {
+        Node* parent = nullptr;
+        Branch branch = Branch::Left;
+    };
 
-    // roots[v] guarda a raiz correspondente à versão v.
-    std::vector<Node*> roots;
+    std::vector<std::unique_ptr<Node>> storage;
+    std::vector<Node*> versionRoots;
 
-    Node* currentRoot;
-    int currentVersion;
+    /*
+     * Essas estruturas representam apenas informações da árvore atual.
+     * Elas não fazem parte do estado persistente armazenado em Node.
+     */
+    std::unordered_map<Node*, ParentLink> parentLinks;
+    std::unordered_map<Node*, Node*> replacements;
 
-    bool hasModificationSpace(Node* node) const;
+    Node* workingRoot = nullptr;
+    int workingVersion = 0;
 
-    void addModification(
+    std::pair<Node*, Node*> childrenAt(
         Node* node,
-        ChildSide side,
-        Node* child
+        int version
+    ) const;
+
+    void recordState(
+        Node* node,
+        Node* left,
+        Node* right
     );
 
-    Node* applyChildChange(
+    void registerChildren(Node* node);
+
+    Node* updateChildren(
         Node* node,
-        ChildSide side,
-        Node* child
+        Node* left,
+        Node* right
     );
 
 public:
@@ -47,44 +64,52 @@ public:
     void beginVersion();
     void commitVersion();
 
-    Node* getCurrentRoot() const;
+    Node* currentRoot() const;
 
-    Node* childAt(
+    Node* currentNode(
+        Node* node
+    ) const;
+
+    Node* leftAt(
         Node* node,
-        ChildSide side,
         int version
     ) const;
 
-    Node* currentChild(
+    Node* rightAt(
         Node* node,
-        ChildSide side
+        int version
     ) const;
 
-    Node* latestCopy(Node* node) const;
+    Node* currentLeft(
+        Node* node
+    ) const;
+
+    Node* currentRight(
+        Node* node
+    ) const;
 
     void setChild(
         Node* parent,
-        ChildSide side,
+        Branch branch,
         Node* child
     );
 
-    void replaceNode(
+    void replace(
         Node* oldNode,
         Node* newNode
     );
 
-    void setRoot(Node* newRoot);
+    void setRoot(
+        Node* root
+    );
 
-    void adoptCurrentChildren(Node* node);
-
-    ChildSide sideOfChild(
-        Node* parent,
-        Node* child
+    int normalizeVersion(
+        int requestedVersion
     ) const;
 
-    int resolveVersion(int requestedVersion) const;
-
-    Node* rootAt(int version) const;
+    Node* rootAt(
+        int version
+    ) const;
 
     int latestVersion() const;
 };

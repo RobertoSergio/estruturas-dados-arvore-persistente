@@ -3,29 +3,32 @@
 
 #include "PersistenceManager.hpp"
 
-/*
- * Implementa as operações da árvore binária de busca.
- * A parte de versionamento fica delegada ao PersistenceManager.
- */
 class PersistentBST {
 private:
     PersistenceManager persistence;
 
-    Node* findCurrentNode(int value) const;
+    Node* findCurrentNode(
+        int value
+    ) const;
 
-    Node* findCurrentMinimum(
+    Node* minimum(
         Node* node
     ) const;
 
-    void removeNodeWithTwoChildren(
+    void removeWithTwoChildren(
         Node* node
     );
 
 public:
     PersistentBST() = default;
 
-    void insert(int value);
-    void remove(int value);
+    void insert(
+        int value
+    );
+
+    void remove(
+        int value
+    );
 
     bool successor(
         int value,
@@ -33,7 +36,9 @@ public:
         int& result
     ) const;
 
-    void print(int version) const;
+    void print(
+        int version
+    ) const;
 
     int latestVersion() const;
 };

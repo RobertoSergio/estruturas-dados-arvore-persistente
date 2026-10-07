@@ -3,11 +3,8 @@
 #include <iostream>
 #include <vector>
 
-Node* PersistentBST::findCurrentNode(
-    int value
-) const {
-    Node* current =
-        persistence.getCurrentRoot();
+Node* PersistentBST::findCurrentNode(int value) const {
+    Node* current = persistence.currentRoot();
 
     while (current != nullptr) {
         if (current->value == value) {
@@ -15,34 +12,20 @@ Node* PersistentBST::findCurrentNode(
         }
 
         if (value < current->value) {
-            current =
-                persistence.currentChild(
-                    current,
-                    ChildSide::Left
-                );
+            current = persistence.currentLeft(current);
         } else {
-            current =
-                persistence.currentChild(
-                    current,
-                    ChildSide::Right
-                );
+            current = persistence.currentRight(current);
         }
     }
 
     return nullptr;
 }
 
-Node* PersistentBST::findCurrentMinimum(
-    Node* node
-) const {
+Node* PersistentBST::minimum(Node* node) const {
     Node* current = node;
 
     while (current != nullptr) {
-        Node* left =
-            persistence.currentChild(
-                current,
-                ChildSide::Left
-            );
+        Node* left = persistence.currentLeft(current);
 
         if (left == nullptr) {
             break;
@@ -54,120 +37,72 @@ Node* PersistentBST::findCurrentMinimum(
     return current;
 }
 
-void PersistentBST::removeNodeWithTwoChildren(
-    Node* node
-) {
-    // Para dois filhos, usamos o menor nó da subárvore direita.
-    Node* rightChild =
-        persistence.currentChild(
-            node,
-            ChildSide::Right
-        );
+void PersistentBST::removeWithTwoChildren(Node* node) {
+    // Usa o menor elemento da subárvore direita como sucessor.
+    Node* right = persistence.currentRight(node);
+    Node* successorNode = minimum(right);
 
-    Node* successorNode =
-        findCurrentMinimum(
-            rightChild
-        );
+    int successorValue = successorNode->value;
+    Node* successorRight = persistence.currentRight(successorNode);
 
-    Node* successorRight =
-        persistence.currentChild(
-            successorNode,
-            ChildSide::Right
-        );
+    Node* newRight = nullptr;
 
-    int successorValue =
-        successorNode->value;
-
-    Node* newRight;
-
-    if (successorNode == rightChild) {
+    if (successorNode == right) {
         newRight = successorRight;
     } else {
         /*
-         * O sucessor não possui filho esquerdo, então pode ser substituído
-         * diretamente pelo seu filho direito.
+         * O sucessor é o menor da subárvore direita e,
+         * portanto, não possui filho esquerdo.
          */
-        persistence.replaceNode(
-            successorNode,
-            successorRight
-        );
+        persistence.replace(successorNode, successorRight);
 
-        // A operação acima pode ter criado uma cópia deste nó.
-        node =
-            persistence.latestCopy(node);
-
-        newRight =
-            persistence.currentChild(
-                node,
-                ChildSide::Right
-            );
+        // A operação pode ter criado novas cópias no caminho até node.
+        node = persistence.currentNode(node);
+        newRight = persistence.currentRight(node);
     }
 
-    node =
-        persistence.latestCopy(node);
+    node = persistence.currentNode(node);
 
-    Node* newLeft =
-        persistence.currentChild(
-            node,
-            ChildSide::Left
-        );
-
-    Node* replacement =
-        persistence.createNode(
-            successorValue,
-            newLeft,
-            newRight
-        );
-
-    persistence.adoptCurrentChildren(
-        replacement
+    Node* replacement = persistence.createNode(
+        successorValue,
+        persistence.currentLeft(node),
+        newRight
     );
 
-    persistence.replaceNode(
-        node,
-        replacement
-    );
+    /*
+     * Criamos outro nó em vez de alterar o valor existente,
+     * pois versões antigas ainda podem apontar para o nó original.
+     */
+    persistence.replace(node, replacement);
 }
 
 void PersistentBST::insert(int value) {
     persistence.beginVersion();
 
-    Node* newNode =
-        persistence.createNode(value);
+    Node* newNode = persistence.createNode(value);
 
-    if (
-        persistence.getCurrentRoot() ==
-        nullptr
-    ) {
+    if (persistence.currentRoot() == nullptr) {
         persistence.setRoot(newNode);
         persistence.commitVersion();
-
         return;
     }
 
-    Node* current =
-        persistence.getCurrentRoot();
+    Node* current = persistence.currentRoot();
 
     while (true) {
-        // Valores repetidos seguem para a subárvore direita.
-        ChildSide side =
-            (value < current->value)
-                ? ChildSide::Left
-                : ChildSide::Right;
+        // Valores repetidos são inseridos na subárvore direita.
+        Branch branch =
+            value < current->value
+                ? Branch::Left
+                : Branch::Right;
 
         Node* next =
-            persistence.currentChild(
-                current,
-                side
-            );
+            branch == Branch::Left
+                ? persistence.currentLeft(current)
+                : persistence.currentRight(current);
 
         if (next == nullptr) {
-            persistence.setChild(
-                current,
-                side,
-                newNode
-            );
-
+            persistence.setChild(current, branch, newNode);
             break;
         }
 
@@ -180,41 +115,23 @@ void PersistentBST::insert(int value) {
 void PersistentBST::remove(int value) {
     persistence.beginVersion();
 
-    Node* target =
-        findCurrentNode(value);
+    Node* target = findCurrentNode(value);
 
-    // REM cria uma nova versão mesmo quando o valor não existe.
+    // REM também cria versão quando o valor não existe.
     if (target == nullptr) {
         persistence.commitVersion();
         return;
     }
 
-    Node* left =
-        persistence.currentChild(
-            target,
-            ChildSide::Left
-        );
-
-    Node* right =
-        persistence.currentChild(
-            target,
-            ChildSide::Right
-        );
+    Node* left = persistence.currentLeft(target);
+    Node* right = persistence.currentRight(target);
 
     if (left == nullptr) {
-        persistence.replaceNode(
-            target,
-            right
-        );
+        persistence.replace(target, right);
     } else if (right == nullptr) {
-        persistence.replaceNode(
-            target,
-            left
-        );
+        persistence.replace(target, left);
     } else {
-        removeNodeWithTwoChildren(
-            target
-        );
+        removeWithTwoChildren(target);
     }
 
     persistence.commitVersion();
@@ -225,39 +142,21 @@ bool PersistentBST::successor(
     int version,
     int& result
 ) const {
-    int actualVersion =
-        persistence.resolveVersion(
-            version
-        );
+    int actualVersion = persistence.normalizeVersion(version);
 
-    Node* current =
-        persistence.rootAt(
-            actualVersion
-        );
-
+    Node* current = persistence.rootAt(actualVersion);
     Node* candidate = nullptr;
 
     /*
-     * Ao encontrar um valor maior, ele vira candidato e a busca segue
-     * pela esquerda tentando encontrar um sucessor ainda menor.
+     * Um valor maior vira candidato. A busca continua pela esquerda
+     * para verificar se existe outro candidato menor.
      */
     while (current != nullptr) {
         if (current->value > value) {
             candidate = current;
-
-            current =
-                persistence.childAt(
-                    current,
-                    ChildSide::Left,
-                    actualVersion
-                );
+            current = persistence.leftAt(current, actualVersion);
         } else {
-            current =
-                persistence.childAt(
-                    current,
-                    ChildSide::Right,
-                    actualVersion
-                );
+            current = persistence.rightAt(current, actualVersion);
         }
     }
 
@@ -266,41 +165,22 @@ bool PersistentBST::successor(
     }
 
     result = candidate->value;
-
     return true;
 }
 
-void PersistentBST::print(
-    int version
-) const {
-    int actualVersion =
-        persistence.resolveVersion(
-            version
-        );
+void PersistentBST::print(int version) const {
+    int actualVersion = persistence.normalizeVersion(version);
 
-    Node* current =
-        persistence.rootAt(
-            actualVersion
-        );
-
+    Node* current = persistence.rootAt(actualVersion);
     std::vector<Node*> stack;
 
     bool first = true;
 
-    // Percurso em ordem para imprimir os valores em ordem crescente.
-    while (
-        current != nullptr ||
-        !stack.empty()
-    ) {
+    // Percurso em ordem iterativo.
+    while (current != nullptr || !stack.empty()) {
         while (current != nullptr) {
             stack.push_back(current);
-
-            current =
-                persistence.childAt(
-                    current,
-                    ChildSide::Left,
-                    actualVersion
-                );
+            current = persistence.leftAt(current, actualVersion);
         }
 
         current = stack.back();
@@ -311,15 +191,9 @@ void PersistentBST::print(
         }
 
         std::cout << current->value;
-
         first = false;
 
-        current =
-            persistence.childAt(
-                current,
-                ChildSide::Right,
-                actualVersion
-            );
+        current = persistence.rightAt(current, actualVersion);
     }
 
     std::cout << '\n';
