@@ -80,7 +80,7 @@ Saída:
 
 ```text
 IMP 3
-5 10 20
+5, 10, 20
 ```
 
 Se a versão representar uma árvore vazia, a linha após `IMP` fica vazia.
@@ -125,13 +125,13 @@ Saída:
 
 ```text
 IMP 3
-5 10 20
+5, 10, 20
 SUC 10 3
 20
 IMP 4
-10 20
+10, 20
 IMP 3
-5 10 20
+5, 10, 20
 ```
 
 Nesse exemplo, a remoção de `5` cria a versão 4, mas a versão 3 continua disponível para consulta.

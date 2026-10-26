@@ -187,7 +187,7 @@ void PersistentBST::print(int version) const {
         stack.pop_back();
 
         if (!first) {
-            std::cout << ' ';
+            std::cout << ", ";
         }
 
         std::cout << current->value;
